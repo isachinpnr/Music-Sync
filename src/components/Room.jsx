@@ -1,15 +1,82 @@
 // src/components/Room.jsx
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { getRoom } from '../utils/rooms';
+import { db } from '../firebase';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 function Room({ user }) {
   const { roomId } = useParams();
   const navigate = useNavigate();
+  const [room, setRoom] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    console.log('Room.jsx: roomId from useParams:', roomId); // Debug log
+
+    // Initial fetch
+    const fetchRoom = async () => {
+      try {
+        const roomData = await getRoom(roomId);
+        console.log('Room.jsx: Initial room data:', roomData); // Debug log
+        setRoom(roomData);
+        setError(null);
+      } catch (err) {
+        console.error('Room.jsx: Fetch room error:', err.message); // Debug log
+        setError(err.message);
+      }
+    };
+
+    fetchRoom();
+
+    // Real-time updates
+    const roomsRef = collection(db, 'rooms');
+    const q = query(roomsRef, where('roomId', '==', roomId));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      console.log('Room.jsx: onSnapshot snapshot size:', snapshot.size); // Debug log
+      if (snapshot.empty) {
+        console.log('Room.jsx: No room found in onSnapshot'); // Debug log
+        setError('Room not found');
+        setRoom(null);
+      } else {
+        const roomDoc = snapshot.docs[0];
+        const roomData = { id: roomDoc.id, ...roomDoc.data() };
+        console.log('Room.jsx: onSnapshot room data:', roomData); // Debug log
+        setRoom(roomData);
+        setError(null);
+      }
+    }, (err) => {
+      console.error('Room.jsx: onSnapshot error:', err.message); // Debug log
+      setError('Failed to listen for room updates');
+    });
+
+    return () => unsubscribe();
+  }, [roomId]);
+
+  console.log('Room.jsx: Current room state:', room); // Debug log
+  console.log('Room.jsx: Current error state:', error); // Debug log
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <p className="text-red-500">{error}</p>
+      </div>
+    );
+  }
+
+  if (!room) {
+    console.log('Room.jsx: Rendering loading state'); // Debug log
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <p className="text-gray-700">Loading room...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-100 p-6">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-blue-600">Room: {roomId}</h1>
+        <h1 className="text-3xl font-bold text-blue-600">Room: {room.name}</h1>
         <button
           onClick={() => navigate('/dashboard')}
           className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition"
@@ -54,8 +121,11 @@ function Room({ user }) {
       <div className="bg-white p-4 rounded-lg shadow mt-6">
         <h2 className="text-xl font-semibold mb-2">Users in Room</h2>
         <ul className="space-y-2">
-          <li className="text-gray-700">{user.displayName || user.email}</li>
-          <li className="text-gray-700">User 2</li>
+          {room.users.map((userId) => (
+            <li key={userId} className="text-gray-700">
+              {userId === user.uid ? user.displayName || user.email : `User ${userId.slice(0, 8)}`}
+            </li>
+          ))}
         </ul>
       </div>
     </div>
