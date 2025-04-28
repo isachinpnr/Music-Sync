@@ -1,7 +1,8 @@
 // src/components/Room.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getRoom } from '../utils/rooms';
+import { sendMessage, listenForMessages } from '../utils/chat';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
@@ -10,7 +11,11 @@ function Room({ user }) {
   const navigate = useNavigate();
   const [room, setRoom] = useState(null);
   const [error, setError] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [messageText, setMessageText] = useState('');
+  const chatContainerRef = useRef(null);
 
+  // Fetch room details
   useEffect(() => {
     console.log('Room.jsx: roomId from useParams:', roomId); // Debug log
 
@@ -53,8 +58,37 @@ function Room({ user }) {
     return () => unsubscribe();
   }, [roomId]);
 
+  // Listen for messages
+  useEffect(() => {
+    if (!room) return; // Wait for room to load
+    const unsubscribe = listenForMessages(room.id, (fetchedMessages) => {
+      setMessages(fetchedMessages);
+    });
+    return () => unsubscribe();
+  }, [room]);
+
+  // Scroll to bottom of chat
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!messageText.trim() || !room) return;
+
+    try {
+      await sendMessage(room.id, user, messageText);
+      setMessageText('');
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   console.log('Room.jsx: Current room state:', room); // Debug log
   console.log('Room.jsx: Current error state:', error); // Debug log
+  console.log('Room.jsx: Current messages state:', messages); // Debug log
 
   if (error) {
     return (
@@ -101,20 +135,51 @@ function Room({ user }) {
 
         <div className="w-2/3 bg-white p-4 rounded-lg shadow">
           <h2 className="text-xl font-semibold mb-2">Live Chat</h2>
-          <div className="h-64 overflow-y-auto border p-2 mb-4 rounded">
-            <p className="text-gray-700">User 1: Yo, this song is fire! 🔥</p>
-            <p className="text-gray-700">User 2: Haha, totally!</p>
+          <div
+            ref={chatContainerRef}
+            className="h-64 overflow-y-auto border p-2 mb-4 rounded bg-gray-50"
+          >
+            {messages.length === 0 && (
+              <p className="text-gray-500">No messages yet. Start the conversation!</p>
+            )}
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className={`mb-2 ${
+                  message.senderId === user.uid ? 'text-right' : 'text-left'
+                }`}
+              >
+                <p className="text-sm text-gray-600">
+                  {message.senderName} •{' '}
+                  {new Date(message.createdAt.seconds * 1000).toLocaleTimeString()}
+                </p>
+                <p
+                  className={`inline-block p-2 rounded-lg ${
+                    message.senderId === user.uid
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-gray-200 text-gray-800'
+                  }`}
+                >
+                  {message.text}
+                </p>
+              </div>
+            ))}
           </div>
-          <div className="flex space-x-2">
+          <form onSubmit={handleSendMessage} className="flex space-x-2">
             <input
               type="text"
               placeholder="Type a message..."
+              value={messageText}
+              onChange={(e) => setMessageText(e.target.value)}
               className="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <button className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition">
+            <button
+              type="submit"
+              className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition"
+            >
               Send
             </button>
-          </div>
+          </form>
         </div>
       </div>
 
